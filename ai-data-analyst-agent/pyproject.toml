@@ -1,0 +1,10 @@
+[project]
+name = "ai-data-analyst-agent"
+version = "1.0.0"
+description = "A learning-focused AI data analyst agent built with LangGraph, SQLite, FastAPI, and Streamlit."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

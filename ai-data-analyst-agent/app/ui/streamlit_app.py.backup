@@ -1,0 +1,593 @@
+﻿"""Modern Streamlit UI for AI Data Analyst Agent."""
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
+from app.agent.graph import run_analysis
+from app.core.config import is_llm_enabled, get_openai_model
+from app.database.db import ensure_database, execute_readonly_query
+
+
+# --------------------------------------------------
+# 1. Page configuration
+# --------------------------------------------------
+
+st.set_page_config(
+    page_title="AI Data Analyst | InsightAI",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+ensure_database()
+
+# --------------------------------------------------
+# 2. Custom CSS
+# --------------------------------------------------
+
+st.markdown("""
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+    --bg: #0b1020;
+    --panel: #111a2e;
+    --card: #151f35;
+    --accent: #818cf8;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+}
+
+html, body, [class*="css"] {
+    font-family: 'DM Sans', sans-serif;
+}
+
+[data-testid="stAppViewContainer"] {
+    background:
+        radial-gradient(ellipse at 75% 0%, #1b2850 0%, transparent 38%),
+        #0b1020;
+    color: var(--text);
+}
+
+[data-testid="stHeader"] {
+    background: transparent;
+}
+
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #111a2e, #0d1425);
+    border-right: 1px solid rgba(148,163,184,0.12);
+}
+
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 2rem;
+}
+
+.block-container {
+    max-width: 1450px;
+    padding-top: 2.5rem;
+    padding-bottom: 5rem;
+}
+
+h1, h2, h3 {
+    color: #f8fafc !important;
+    letter-spacing: -0.5px;
+}
+
+p, label {
+    color: #cbd5e1;
+}
+
+.hero {
+    padding: 30px 34px;
+    border: 1px solid rgba(129,140,248,0.25);
+    border-radius: 22px;
+    background: linear-gradient(
+        120deg,
+        rgba(79,70,229,0.20),
+        rgba(30,41,59,0.45)
+    );
+    margin-bottom: 25px;
+}
+
+.hero-tag {
+    color: #a5b4fc;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+}
+
+.hero h1 {
+    font-size: 38px;
+    font-weight: 800;
+    margin: 0;
+}
+
+.hero h1 span {
+    color: #a5b4fc;
+}
+
+.hero p {
+    color: #aab7cc;
+    font-size: 15px;
+    margin-top: 12px;
+    margin-bottom: 0;
+}
+
+.section-title {
+    font-size: 19px;
+    font-weight: 700;
+    margin: 25px 0 14px 0;
+    color: #f1f5f9;
+}
+
+[data-testid="stMetric"] {
+    background: linear-gradient(145deg, #17233b, #111a2e);
+    border: 1px solid rgba(148,163,184,0.13);
+    border-radius: 17px;
+    padding: 20px 22px;
+}
+
+[data-testid="stMetricLabel"] {
+    color: #94a3b8 !important;
+    font-size: 13px;
+}
+
+[data-testid="stMetricValue"] {
+    color: #f8fafc !important;
+    font-weight: 800;
+}
+
+.stButton > button {
+    background: #17233b;
+    color: #e2e8f0;
+    border: 1px solid rgba(129,140,248,0.20);
+    border-radius: 12px;
+    min-height: 48px;
+    transition: all 0.2s ease;
+    font-weight: 600;
+}
+
+.stButton > button:hover {
+    border-color: #818cf8;
+    background: #26345a;
+    color: white;
+    transform: translateY(-2px);
+}
+
+[data-testid="stChatInput"] {
+    background: #17233b;
+    border: 1px solid rgba(129,140,248,0.35);
+    border-radius: 16px;
+}
+
+[data-testid="stChatMessage"] {
+    background: rgba(21,31,53,0.65);
+    border: 1px solid rgba(148,163,184,0.10);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+
+[data-testid="stExpander"] {
+    background: rgba(21,31,53,0.55);
+    border: 1px solid rgba(148,163,184,0.13);
+    border-radius: 12px;
+}
+
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+}
+
+.brand-icon {
+    background: linear-gradient(135deg, #6366f1, #a78bfa);
+    padding: 12px;
+    border-radius: 13px;
+    font-size: 23px;
+}
+
+.brand-name {
+    color: white;
+    font-size: 19px;
+    font-weight: 800;
+}
+
+.brand-sub {
+    color: #818cf8;
+    font-size: 9px;
+    letter-spacing: 2px;
+    font-weight: 700;
+}
+
+.status-pill {
+    display: inline-block;
+    background: rgba(52,211,153,0.12);
+    color: #6ee7b7;
+    border: 1px solid rgba(52,211,153,0.25);
+    padding: 7px 12px;
+    border-radius: 30px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.small-muted {
+    color: #64748b;
+    font-size: 12px;
+}
+
+hr {
+    border-color: rgba(148,163,184,0.15);
+}
+
+footer {
+    visibility: hidden;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
+# --------------------------------------------------
+# 3. Dashboard statistics
+# --------------------------------------------------
+
+def get_dashboard_stats():
+
+    _, revenue_rows, _ = execute_readonly_query("""
+        SELECT
+            ROUND(COALESCE(SUM(total_amount), 0), 2) AS revenue,
+            COUNT(*) AS orders
+        FROM orders
+        WHERE status = 'delivered'
+    """, max_rows=1)
+
+    _, customer_rows, _ = execute_readonly_query("""
+        SELECT COUNT(*) AS customers
+        FROM customers
+    """, max_rows=1)
+
+    revenue = revenue_rows[0]["revenue"] if revenue_rows else 0
+    orders = revenue_rows[0]["orders"] if revenue_rows else 0
+    customers = customer_rows[0]["customers"] if customer_rows else 0
+
+    return revenue, orders, customers
+
+
+# --------------------------------------------------
+# 4. Sidebar
+# --------------------------------------------------
+
+with st.sidebar:
+
+    st.markdown("""
+    <div class="sidebar-brand">
+        <div class="brand-icon">✦</div>
+        <div>
+            <div class="brand-name">InsightAI</div>
+            <div class="brand-sub">DATA ANALYST AGENT</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("### Agent Status")
+
+    if is_llm_enabled():
+        st.success("● OpenAI Mode")
+        st.caption(f"Model: {get_openai_model()}")
+    else:
+        st.info("● Demo Mode")
+        st.caption("Local SQL templates · No API key required")
+
+    st.divider()
+
+    st.markdown("### Data Source")
+
+    st.markdown("**Retail Sales Database**")
+    st.caption("SQLite · sample_sales.db")
+
+    st.markdown("""
+    <div class="small-muted">
+    Four relational tables<br>
+    Customers · Products<br>
+    Orders · Order Items
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    st.markdown("### Agent Capabilities")
+
+    st.markdown("""
+    - Natural Language to SQL
+    - SQL Safety Validation
+    - Read-only Query Execution
+    - Data Analysis
+    - Interactive Visualization
+    """)
+
+    st.divider()
+
+    if st.button("Clear Conversation", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown(
+        '<div class="small-muted">AI Data Analyst Agent · v2.0<br>'
+        'Built with Python + LangGraph</div>',
+        unsafe_allow_html=True
+    )
+
+
+# --------------------------------------------------
+# 5. Hero section
+# --------------------------------------------------
+
+st.markdown("""
+<div class="hero">
+    <div class="hero-tag">✦ AI-POWERED ANALYTICS WORKSPACE</div>
+    <h1>Turn Questions Into <span>Insights.</span></h1>
+    <p>
+        Your intelligent data analyst. Ask questions in natural language,
+        explore business data, and discover insights automatically.
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+
+# --------------------------------------------------
+# 6. KPI cards
+# --------------------------------------------------
+
+try:
+    revenue, orders, customers = get_dashboard_stats()
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Delivered Revenue",
+            f"{float(revenue):,.2f}",
+            help="Revenue from delivered orders in sample data."
+        )
+
+    with col2:
+        st.metric(
+            "Delivered Orders",
+            f"{int(orders):,}"
+        )
+
+    with col3:
+        st.metric(
+            "Total Customers",
+            f"{int(customers):,}"
+        )
+
+except Exception as exc:
+    st.warning(f"Could not load dashboard statistics: {exc}")
+
+
+# --------------------------------------------------
+# 7. Quick questions
+# --------------------------------------------------
+
+st.markdown(
+    '<div class="section-title">✦ Explore Your Data</div>',
+    unsafe_allow_html=True
+)
+
+EXAMPLE_QUESTIONS = [
+    "What is the total revenue?",
+    "Show the top 5 best-selling products.",
+    "Show monthly revenue trends.",
+    "Compare sales by category.",
+    "Who are the top customers?",
+    "What is the order status distribution?",
+]
+
+
+def queue_question(question):
+    st.session_state["pending_question"] = question
+
+
+for start in range(0, len(EXAMPLE_QUESTIONS), 3):
+
+    cols = st.columns(3)
+
+    for col, question in zip(
+        cols, EXAMPLE_QUESTIONS[start:start + 3]
+    ):
+
+        with col:
+            st.button(
+                question,
+                key=f"example_{EXAMPLE_QUESTIONS.index(question)}",
+                use_container_width=True,
+                on_click=queue_question,
+                args=(question,)
+            )
+
+
+# --------------------------------------------------
+# 8. Chat history
+# --------------------------------------------------
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+
+def render_result(result, key_suffix="0"):
+
+    if result.get("error"):
+        st.error(result["error"])
+        return
+
+    if result.get("mode") == "demo":
+        st.caption("● Demo Mode")
+    else:
+        st.caption("● OpenAI LLM Mode")
+
+    sql = result.get("sql")
+
+    if sql:
+        with st.expander("View Generated SQL"):
+
+            st.code(sql, language="sql")
+
+            explanation = result.get("sql_explanation")
+
+            if explanation:
+                st.caption(explanation)
+
+    rows = result.get("rows") or []
+    columns = result.get("columns") or []
+
+    if rows:
+
+        frame = pd.DataFrame(rows, columns=columns or None)
+
+        st.markdown("#### Query Results")
+
+        st.dataframe(
+            frame,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.download_button(
+            "↓ Download CSV",
+            data=frame.to_csv(index=False).encode("utf-8-sig"),
+            file_name="analysis_results.csv",
+            mime="text/csv",
+            key=f"download_{key_suffix}"
+        )
+
+        numeric_columns = frame.select_dtypes(
+            include="number"
+        ).columns.tolist()
+
+        label_column = next(
+            (
+                column for column in frame.columns
+                if column not in numeric_columns
+            ),
+            None
+        )
+
+        if len(frame) > 1 and numeric_columns and label_column:
+
+            chart_column = numeric_columns[0]
+
+            if "month" in label_column.lower():
+
+                figure = px.line(
+                    frame,
+                    x=label_column,
+                    y=chart_column,
+                    markers=True,
+                    title=f"{chart_column} Trend"
+                )
+
+            else:
+
+                figure = px.bar(
+                    frame.head(20),
+                    x=label_column,
+                    y=chart_column,
+                    title=f"{chart_column} by {label_column}",
+                )
+
+            figure.update_layout(
+                template="plotly_dark",
+                height=380,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                margin=dict(l=10, r=10, t=55, b=10),
+                font=dict(color="#cbd5e1"),
+            )
+
+            st.plotly_chart(
+                figure,
+                use_container_width=True,
+                config={"displayModeBar": False}
+            )
+
+    if result.get("truncated"):
+        st.warning("Results were limited by the configured row limit.")
+
+
+for index, message in enumerate(st.session_state.messages):
+
+    with st.chat_message(message["role"]):
+
+        st.markdown(message["content"])
+
+        if message.get("result"):
+            render_result(
+                message["result"],
+                key_suffix=str(index)
+            )
+
+
+# --------------------------------------------------
+# 9. Chat input and agent execution
+# --------------------------------------------------
+
+prompt = st.chat_input(
+    "Ask anything about your retail sales data..."
+)
+
+queued_prompt = st.session_state.pop("pending_question", None)
+
+if queued_prompt:
+    prompt = queued_prompt
+
+
+if prompt:
+
+    st.session_state.messages.append({
+        "role": "user",
+        "content": prompt
+    })
+
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+
+        with st.spinner("✦ Agent is analyzing your data..."):
+
+            try:
+                result = run_analysis(prompt)
+
+            except Exception as exc:
+                result = {
+                    "error": str(exc),
+                    "analysis": None
+                }
+
+        answer = (
+            result.get("analysis")
+            or result.get("error")
+            or "No response generated."
+        )
+
+        if result.get("error"):
+            st.error(result["error"])
+        else:
+            st.markdown(answer)
+            render_result(
+                result,
+                key_suffix=f"new_{len(st.session_state.messages)}"
+            )
+
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": answer,
+        "result": result
+    })

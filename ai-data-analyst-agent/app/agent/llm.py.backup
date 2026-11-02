@@ -1,0 +1,116 @@
+"""OpenAI integration with a deterministic offline fallback."""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from app.agent.demo_mode import demo_sql
+from app.core.config import get_openai_api_key, get_openai_model
+
+
+def generate_sql(question: str, schema: str) -> tuple[str, str, str]:
+    """Return (sql, explanation, mode)."""
+    api_key = get_openai_api_key()
+    if not api_key:
+        sql, explanation = demo_sql(question)
+        return sql, explanation, "demo"
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, timeout=45.0, max_retries=2)
+        response = client.chat.completions.create(
+            model=get_openai_model(),
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a careful SQLite analytics engineer. "
+                        "Return JSON with exactly two keys: sql and explanation. "
+                        "Generate exactly one read-only SELECT query. "
+                        "Use only tables and columns in the supplied schema. "
+                        "Never generate INSERT, UPDATE, DELETE, DROP, ALTER, PRAGMA, "
+                        "ATTACH, or multiple statements. Prefer explicit columns. "
+                        "Do not invent columns. Use SQLite syntax. "
+                        "The application applies an automatic row limit."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"Database schema:\n{schema}\n\nQuestion:\n{question}"
+                }
+            ],
+        )
+        content = response.choices[0].message.content or "{}"
+        payload = json.loads(content)
+        sql = str(payload.get("sql", "")).strip()
+        explanation = str(payload.get("explanation", "Generated SQL query.")).strip()
+        if not sql:
+            raise ValueError("The model returned an empty SQL query.")
+        return sql, explanation, "openai"
+    except Exception as exc:
+        raise RuntimeError(
+            "OpenAI SQL generation failed. Check your API key, model name, "
+            f"network connection, and quota. Details: {exc}"
+        ) from exc
+
+
+def summarize_results(
+    question: str,
+    sql: str,
+    columns: list[str],
+    rows: list[dict[str, Any]],
+    mode: str,
+) -> str:
+    if not rows:
+        return "查询已成功执行，但没有返回符合条件的数据。可以尝试调整问题或时间范围。"
+
+    api_key = get_openai_api_key()
+    if api_key and mode == "openai":
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, timeout=45.0, max_retries=2)
+            compact_rows = rows[:20]
+            response = client.chat.completions.create(
+                model=get_openai_model(),
+                temperature=0.2,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a business data analyst. Explain query results "
+                            "concisely and accurately. Use only the supplied data. "
+                            "Do not claim causation or trends that the data cannot prove. "
+                            "Mention limitations when appropriate. Answer in the user's language."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Question: {question}\nSQL: {sql}\n"
+                            f"Columns: {columns}\nRows (up to 20): "
+                            f"{json.dumps(compact_rows, ensure_ascii=False, default=str)}"
+                        )
+                    }
+                ],
+            )
+            return response.choices[0].message.content or _local_summary(rows)
+        except Exception as exc:
+            return _local_summary(rows) + (
+                "\n\nNote: LLM explanation was unavailable; showing a "
+                f"data-based summary instead ({type(exc).__name__})."
+            )
+    return _local_summary(rows)
+
+
+def _local_summary(rows: list[dict[str, Any]]) -> str:
+    count = len(rows)
+    first = rows[0]
+    preview = ", ".join(f"{key}: {value}" for key, value in list(first.items())[:4])
+    return (
+        f"查询成功，共返回 **{count}** 条记录。"
+        f"\n\n首条结果摘要：{preview}。"
+        "\n\n当前处于 Demo Mode，结果来自本地示例数据库。配置 OpenAI API Key 后，"
+        "系统可以针对更广泛的自然语言问题生成 SQL 并提供更深入的解释。"
+    )
