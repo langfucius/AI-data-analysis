@@ -5,6 +5,7 @@ openai>=1.40
 langgraph>=0.2
 sqlglot>=25
 pandas>=2.2
+openpyxl>=3.1
 plotly>=5.22
 python-dotenv>=1.0
 pytest>=8.0

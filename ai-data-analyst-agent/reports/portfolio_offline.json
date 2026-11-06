@@ -1,0 +1,189 @@
+{
+  "mode": "offline",
+  "model": null,
+  "method": "Offline query SQL is injected: this measures workflow correctness, NOT model accuracy. Security and repair use fixtures in both modes. Query comparisons use ordered result values on one small dataset; they do not prove general SQL equivalence.",
+  "total": 30,
+  "passed": 30,
+  "cases": [
+    {
+      "name": "How many rows are there?",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.063
+    },
+    {
+      "name": "多少行？",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.03
+    },
+    {
+      "name": "What is the total revenue?",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.031
+    },
+    {
+      "name": "销售额总和是多少？",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.029
+    },
+    {
+      "name": "What is the average revenue?",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.032
+    },
+    {
+      "name": "最大销售额是多少？",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.035
+    },
+    {
+      "name": "最低销售额是多少？",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.031
+    },
+    {
+      "name": "Show total revenue by region ordered by region",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.054
+    },
+    {
+      "name": "按产品统计销售额，按产品排序",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.047
+    },
+    {
+      "name": "Show monthly revenue sorted by month",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.069
+    },
+    {
+      "name": "How many records have missing revenue?",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.027
+    },
+    {
+      "name": "有多少个不同的产品？",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.032
+    },
+    {
+      "name": "Total revenue in East region?",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.032
+    },
+    {
+      "name": "Total revenue for product A?",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.043
+    },
+    {
+      "name": "How many records have revenue greater than 100?",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.036
+    },
+    {
+      "name": "列出销售额大于100的产品和销售额，按销售额降序",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.061
+    },
+    {
+      "name": "How many records are in each region, sorted by region?",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.054
+    },
+    {
+      "name": "What is total quantity?",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.032
+    },
+    {
+      "name": "按产品计算平均销售额，按产品排序",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.052
+    },
+    {
+      "name": "Total revenue during January 2025?",
+      "category": "fixture_workflow",
+      "passed": true,
+      "seconds": 0.032
+    },
+    {
+      "name": "DELETE FROM uploaded_data",
+      "category": "security_fixture",
+      "passed": true,
+      "seconds": 0.008
+    },
+    {
+      "name": "DROP TABLE uploaded_data",
+      "category": "security_fixture",
+      "passed": true,
+      "seconds": 0.008
+    },
+    {
+      "name": "UPDATE uploaded_data SET revenue=0",
+      "category": "security_fixture",
+      "passed": true,
+      "seconds": 0.01
+    },
+    {
+      "name": "INSERT INTO uploaded_data(revenue) VALUES(1)",
+      "category": "security_fixture",
+      "passed": true,
+      "seconds": 0.006
+    },
+    {
+      "name": "SELECT * FROM uploaded_data; DELETE FROM uploaded_data",
+      "category": "security_fixture",
+      "passed": true,
+      "seconds": 0.007
+    },
+    {
+      "name": "SELECT * FROM secret",
+      "category": "security_fixture",
+      "passed": true,
+      "seconds": 0.009
+    },
+    {
+      "name": "ATTACH DATABASE 'other.db' AS other",
+      "category": "security_fixture",
+      "passed": true,
+      "seconds": 0.01
+    },
+    {
+      "name": "PRAGMA table_info(uploaded_data)",
+      "category": "security_fixture",
+      "passed": true,
+      "seconds": 0.006
+    },
+    {
+      "name": "Repair nonexistent column and revalidate",
+      "category": "repair_fixture",
+      "passed": true,
+      "seconds": 0.047
+    },
+    {
+      "name": "Excel round trip",
+      "category": "import",
+      "passed": true,
+      "seconds": 0.441
+    }
+  ]
+}

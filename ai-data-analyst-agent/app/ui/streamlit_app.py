@@ -1,6 +1,7 @@
-﻿"""Bilingual AI Data Analyst Agent Dashboard."""
+"""Bilingual AI Data Analyst Agent Dashboard."""
 
 import os
+from urllib.parse import urlsplit
 
 import pandas as pd
 import plotly.express as px
@@ -9,6 +10,7 @@ import streamlit as st
 from dotenv import set_key, unset_key
 
 from app.agent.graph import run_analysis
+from app.ui.analysis_workspace import render_analysis_text, render_conversation_result, render_data_workspace
 from app.core.config import (
     PROJECT_ROOT,
     get_openai_api_key,
@@ -16,6 +18,8 @@ from app.core.config import (
     is_llm_enabled,
 )
 from app.database.db import ensure_database, execute_readonly_query
+from app.ui.data_import import render_data_import
+from app.core.config import active_database
 
 
 # ==================================================
@@ -29,6 +33,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+active_database.set(st.session_state.get('uploaded_database'))
 ensure_database()
 
 ENV_PATH = PROJECT_ROOT / ".env"
@@ -73,7 +78,7 @@ TEXT = {
         "hero_tag": "AI 驱动的数据分析工作台",
         "hero_title": "让数据成为",
         "hero_highlight": "商业洞察。",
-        "hero_desc": "用自然语言提问，让 AI Agent 自动生成 SQL、分析数据并解释结果。",
+        "hero_desc": "直接提出业务问题，查看趋势、差异、占比和分析建议，也可以在同一工作台探索数据与图表。",
         "revenue": "已交付订单收入",
         "orders": "已交付订单数",
         "customers": "客户总数",
@@ -92,8 +97,8 @@ TEXT = {
         "questions": [
             "总收入是多少？",
             "展示最畅销的 5 个产品。",
-            "展示每月收入趋势。",
-            "比较不同产品类别的销售额。",
+            "分析每月收入变化，找出高点，并给出后续分析建议。",
+            "比较不同产品类别的销售额，说明领先品类和差距。",
             "哪些客户消费最高？",
             "订单状态分布是什么？",
         ],
@@ -233,7 +238,9 @@ def test_api_connection():
         messages=[
             {"role": "user", "content": "Reply with OK."}
         ],
-        max_tokens=5,
+        max_tokens=32,
+        **({"extra_body": {"thinking": {"type": "disabled"}}}
+           if urlsplit(base_url).hostname == 'api.deepseek.com' else {}),
     )
 
 
@@ -352,9 +359,10 @@ with st.sidebar:
     st.divider()
 
     st.markdown(f"### {T['database']}")
-    st.markdown(f"**{T['database_name']}**")
-    st.caption("SQLite · sample_sales.db")
-    st.caption(T["tables"])
+    if not st.session_state.get('uploaded_database'):
+        st.markdown(f"**{T['database_name']}**")
+        st.caption(T["tables"])
+    render_data_import()
 
     st.divider()
 
@@ -507,6 +515,9 @@ hr {
 footer {
     visibility: hidden;
 }
+/* Analysis now lives in the main workspace; retain the old page URL only for compatibility. */
+[data-testid="stSidebarNav"] { display: none; }
+
 
 </style>
 """, unsafe_allow_html=True)
@@ -558,28 +569,39 @@ st.markdown(
 # 10. KPI CARDS
 # ==================================================
 
-try:
-
-    revenue, orders, customers = get_dashboard_stats()
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(T["revenue"], f"{float(revenue):,.2f}")
-
-    with col2:
-        st.metric(T["orders"], f"{int(orders):,}")
-
-    with col3:
-        st.metric(T["customers"], f"{int(customers):,}")
-
-except Exception as exc:
-    st.warning(f"{T['error']}: {exc}")
+if not st.session_state.get('uploaded_database'):
+    try:
+    
+        revenue, orders, customers = get_dashboard_stats()
+    
+        col1, col2, col3 = st.columns(3)
+    
+        with col1:
+            st.metric(T["revenue"], f"{float(revenue):,.2f}")
+    
+        with col2:
+            st.metric(T["orders"], f"{int(orders):,}")
+    
+        with col3:
+            st.metric(T["customers"], f"{int(customers):,}")
+    
+    except Exception as exc:
+        st.warning(f"{T['error']}: {exc}")
 
 
 # ==================================================
 # 11. QUICK QUESTIONS
 # ==================================================
+
+workspace_mode = st.radio(
+    "工作台" if language == "简体中文" else "Workspace",
+    ["chat", "explore"],
+    format_func=lambda value: ({"chat": "业务分析", "explore": "数据探索"} if language == "简体中文" else {"chat": "Business analysis", "explore": "Explore data"})[value],
+    horizontal=True, key="workspace_mode",
+)
+if workspace_mode == "explore":
+    render_data_workspace()
+    st.stop()
 
 st.markdown(f"### {T['explore']}")
 
@@ -614,103 +636,7 @@ for start in range(0, len(questions), 3):
 
 def render_result(result, key_suffix="0"):
 
-    if result.get("error"):
-        st.error(result["error"])
-        return
-
-    if result.get("mode") == "demo":
-        st.caption(f"● {T['demo']}")
-    else:
-        st.caption(f"● {T['openai']}")
-
-    sql = result.get("sql")
-
-    if sql:
-
-        with st.expander(T["sql"]):
-
-            st.code(sql, language="sql")
-
-            if result.get("sql_explanation"):
-                st.caption(result["sql_explanation"])
-
-    rows = result.get("rows") or []
-    columns = result.get("columns") or []
-
-    if not rows:
-        st.info(T["no_results"])
-        return
-
-    frame = pd.DataFrame(rows, columns=columns or None)
-
-    st.markdown(f"#### {T['results']}")
-
-    st.dataframe(
-        frame,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.download_button(
-        T["download"],
-        data=frame.to_csv(index=False).encode("utf-8-sig"),
-        file_name="analysis_results.csv",
-        mime="text/csv",
-        key=f"download_{key_suffix}",
-    )
-
-    numeric_columns = frame.select_dtypes(
-        include="number"
-    ).columns.tolist()
-
-    label_column = next(
-        (
-            column for column in frame.columns
-            if column not in numeric_columns
-        ),
-        None,
-    )
-
-    if len(frame) > 1 and numeric_columns and label_column:
-
-        value_column = numeric_columns[0]
-
-        if "month" in label_column.lower():
-
-            figure = px.line(
-                frame,
-                x=label_column,
-                y=value_column,
-                markers=True,
-                title=T["chart"],
-            )
-
-        else:
-
-            figure = px.bar(
-                frame.head(20),
-                x=label_column,
-                y=value_column,
-                title=T["chart"],
-            )
-
-        figure.update_layout(
-            template="plotly_dark",
-            height=370,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            margin=dict(l=10, r=10, t=55, b=10),
-            font=dict(color="#cbd5e1"),
-        )
-
-        st.plotly_chart(
-            figure,
-            use_container_width=True,
-            config={"displayModeBar": False},
-        )
-
-    if result.get("truncated"):
-        st.warning(T["truncated"])
+    render_conversation_result(result, key_suffix)
 
 
 # ==================================================
@@ -721,12 +647,12 @@ for index, message in enumerate(st.session_state.messages):
 
     with st.chat_message(message["role"]):
 
-        st.markdown(message["content"])
+        render_analysis_text(message["content"])
 
         if message.get("result"):
             render_result(
                 message["result"],
-                key_suffix=f"history_{index}",
+                key_suffix=f"message_{index}",
             )
 
 
@@ -734,6 +660,10 @@ for index, message in enumerate(st.session_state.messages):
 # 14. CHAT INPUT AND AGENT EXECUTION
 # ==================================================
 
+from app.agent.answer_templates import TEMPLATES
+answer_template = st.selectbox('回答模板 / Answer template', list(TEMPLATES),
+    format_func=lambda value: TEMPLATES[value][0], key='answer_template')
+st.caption('先给文字结论与解释，再用图表辅助。模板指导分析重点，不限制自由提问。')
 prompt = st.chat_input(T["placeholder"])
 
 queued_prompt = st.session_state.pop(
@@ -760,7 +690,8 @@ if prompt:
         with st.spinner(T["thinking"]):
 
             try:
-                result = run_analysis(prompt)
+                result = run_analysis(prompt, history=st.session_state.messages[:-1], answer_template=answer_template)
+
 
             except Exception as exc:
                 result = {
@@ -777,11 +708,11 @@ if prompt:
         if result.get("error"):
             st.error(answer)
         else:
-            st.markdown(answer)
+            render_analysis_text(answer)
 
         render_result(
             result,
-            key_suffix=f"new_{len(st.session_state.messages)}",
+            key_suffix=f"message_{len(st.session_state.messages)}",
         )
 
     st.session_state.messages.append({

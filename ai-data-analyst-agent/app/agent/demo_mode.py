@@ -42,7 +42,7 @@ def demo_sql(question: str) -> tuple[str, str]:
             "Demo Mode selected a top-products analysis template."
         )
 
-    if any(word in q for word in ("monthly", "month", "trend", "每月", "月度", "趋势")):
+    if any(word in q for word in ("monthly", "month", "trend", "每月", "月度", "趋势", "走势", "高点")):
         return (
             """
             SELECT strftime('%Y-%m', order_date) AS month,
@@ -114,13 +114,4 @@ def demo_sql(question: str) -> tuple[str, str]:
             "Demo Mode selected a total-revenue template."
         )
 
-    return (
-        """
-        SELECT order_id, order_date, status, total_amount
-        FROM orders
-        ORDER BY order_date DESC
-        LIMIT 10
-        """,
-        "Demo Mode does not interpret arbitrary questions. "
-        "Showing the 10 most recent orders as a safe preview."
-    )
+    raise ValueError('Demo 模式未识别此查询，请使用示例问题，或配置模型 API 后自由提问。')

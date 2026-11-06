@@ -1,0 +1,6 @@
+{
+  "original_question": "给出数据检验和因果判断",
+  "rewritten_question": "各section的value比较",
+  "relevance": "irrelevant",
+  "answer": "查询只返回了 report 表中 section 与 value 两列的 2 行数据（C_order_funnel 2378.82、B_data_quality 509.0），没有提供字段类型、缺失值统计、重复记录、时间字段、字段含义或任何检验结果；section/value 的口径不明，也不能据此做比较、排名或判断差异。因此既未完成数据检验，也未完成因果判断。\n\n尚缺证据：需要数据检验所需的字段类型、缺失与重复统计、取值范围、时间覆盖信息，以及明确各 section 的 value 口径；因果判断还需要可识别的处理/对照定义、时间先后或实验设计信息。"
+}

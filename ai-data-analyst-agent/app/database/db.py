@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import sqlite3
+import time
+import os
+import math
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +30,7 @@ def _readonly_connection(path: Path) -> sqlite3.Connection:
 
 def get_table_names(db_path: Path | str | None = None) -> set[str]:
     path = Path(db_path) if db_path else ensure_database()
-    with _readonly_connection(path) as conn:
+    with closing(_readonly_connection(path)) as conn:
         rows = conn.execute(
             "SELECT name FROM sqlite_master "
             "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
@@ -37,14 +41,15 @@ def get_table_names(db_path: Path | str | None = None) -> set[str]:
 def get_schema(db_path: Path | str | None = None) -> str:
     path = Path(db_path) if db_path else ensure_database()
     lines: list[str] = []
-    with _readonly_connection(path) as conn:
+    with closing(_readonly_connection(path)) as conn:
         tables = conn.execute(
             "SELECT name FROM sqlite_master "
             "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
         ).fetchall()
         for row in tables:
             table = row["name"]
-            columns = conn.execute(f'PRAGMA table_info("{table}")').fetchall()
+            quoted_table = table.replace('"', '""')
+            columns = conn.execute(f'PRAGMA table_info("{quoted_table}")').fetchall()
             column_text = ", ".join(
                 f'{col["name"]} ({col["type"]})' for col in columns
             )
@@ -79,18 +84,32 @@ def execute_readonly_query(
     sql: str,
     db_path: Path | str | None = None,
     max_rows: int | None = None,
+    timeout_seconds: float | None = None,
 ) -> tuple[list[str], list[dict[str, Any]], bool]:
     path = Path(db_path) if db_path else ensure_database()
-    row_limit = max_rows or get_max_rows()
+    row_limit = get_max_rows() if max_rows is None else max_rows
+    if isinstance(row_limit, bool) or not isinstance(row_limit, int) or row_limit <= 0:
+        raise ValueError("Row limit must be a positive integer")
+    budget = float(os.getenv("QUERY_TIMEOUT_SECONDS", "5")) if timeout_seconds is None else timeout_seconds
+    if not math.isfinite(budget) or budget <= 0:
+        raise ValueError("Timeout must be finite and positive")
+    deadline = time.monotonic() + budget
     conn = _readonly_connection(path)
     try:
         conn.set_authorizer(_authorizer)
+        conn.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
         cursor = conn.execute(sql)
         columns = [item[0] for item in (cursor.description or [])]
+        if len(set(columns)) != len(columns):
+            raise ValueError("Query returns duplicate column names; use unique SQL aliases")
         raw_rows = cursor.fetchmany(row_limit + 1)
         truncated = len(raw_rows) > row_limit
         raw_rows = raw_rows[:row_limit]
         rows = [dict(row) for row in raw_rows]
         return columns, rows, truncated
+    except sqlite3.OperationalError as exc:
+        if "interrupted" in str(exc).lower() and time.monotonic() >= deadline:
+            raise TimeoutError("Query execution budget exceeded") from exc
+        raise
     finally:
         conn.close()

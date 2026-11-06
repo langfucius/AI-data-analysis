@@ -1,0 +1,1 @@
+"""InsightAI analytics package."""

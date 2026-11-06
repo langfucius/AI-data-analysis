@@ -1,4 +1,4 @@
-﻿"""OpenAI integration with bilingual local Demo Mode."""
+"""OpenAI integration with bilingual local Demo Mode."""
 from __future__ import annotations
 
 import json
@@ -35,6 +35,12 @@ def generate_sql(question: str, schema: str) -> tuple[str, str, str]:
     api_key = get_openai_api_key()
 
     if not api_key:
+        if schema.startswith('Table uploaded_data:'):
+            if any(word in question.lower() for word in ('多少', '行数', 'count', 'how many')):
+                return 'SELECT COUNT(*) AS row_count FROM uploaded_data', '统计上传数据的总行数。', 'demo'
+            if any(word in question.lower() for word in ('预览', 'preview', '查看数据')):
+                return 'SELECT * FROM uploaded_data LIMIT 100', '无 API 模式展示前 100 行；自由分析请配置 API。', 'demo'
+            raise ValueError('上传数据的 Demo 模式仅支持预览和行数查询；自由分析请配置模型 API。')
         sql, explanation = demo_sql(question)
         return sql, explanation, "demo"
 
@@ -95,72 +101,21 @@ def summarize_results(
     columns: list[str],
     rows: list[dict[str, Any]],
     mode: str,
+    snapshot: Any = None,
+    answer_template: str | None = None,
+    original_question: str | None = None,
+    conversation_context: list | None = None,
 ) -> str:
 
-    if not rows:
-        if _is_chinese(question):
-            return (
-                "查询已成功执行，但没有返回符合条件的数据。"
-                "可以尝试调整问题或时间范围。"
-            )
-        return (
-            "The query ran successfully but returned no matching rows. "
-            "Try adjusting your filters or time range."
-        )
-
-    api_key = get_openai_api_key()
-
-    if api_key and mode == "openai":
-        try:
-            client = _get_client()
-
-            response = client.chat.completions.create(
-                model=get_openai_model(),
-                temperature=0.2,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a professional business data analyst. "
-                            "Explain query results concisely and accurately. "
-                            "Use only the supplied data. Do not invent facts "
-                            "or claim unsupported causation. "
-                            "Answer in the same language as the user's question."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Question: {question}\n"
-                            f"SQL: {sql}\n"
-                            f"Columns: {columns}\n"
-                            f"Rows (up to 20): "
-                            f"{json.dumps(rows[:20], ensure_ascii=False, default=str)}"
-                        ),
-                    },
-                ],
-            )
-
-            return (
-                response.choices[0].message.content
-                or _local_summary(rows, question)
-            )
-
-        except Exception as exc:
-            fallback = _local_summary(rows, question)
-
-            if _is_chinese(question):
-                return fallback + (
-                    f"\n\n注意：AI 深度解释暂时不可用 "
-                    f"({type(exc).__name__})，以上为本地数据摘要。"
-                )
-
-            return fallback + (
-                f"\n\nNote: AI explanation was unavailable "
-                f"({type(exc).__name__}). Showing a local data summary."
-            )
-
-    return _local_summary(rows, question)
+    from app.analytics.advanced_result import AnalysisResult
+    from app.analytics.advanced_report import grounded_report
+    result = snapshot if snapshot is not None else AnalysisResult.from_query(columns, rows, question=question, sql=sql)
+    if answer_template is not None:
+        from app.agent.answer_templates import explain_result
+        return explain_result(result, answer_template, _get_client if get_openai_api_key() else None, get_openai_model(),
+                              original_question=original_question, conversation_context=conversation_context)
+    return grounded_report(result, _get_client if get_openai_api_key() else None,
+                           get_openai_model(), mode)
 
 
 def _local_summary(
@@ -192,3 +147,59 @@ def _local_summary(
         "Configure an OpenAI API key for broader natural-language SQL "
         "generation and deeper data analysis."
     )
+
+
+# INSIGHTAI_V2_SQL_REPAIR_BEGIN
+def repair_sql(
+    question: str,
+    schema: str,
+    failed_sql: str,
+    error: str,
+) -> tuple[str, str]:
+    """Ask the configured LLM to repair a failed read-only SQL query."""
+
+    client = _get_client()
+
+    response = client.chat.completions.create(
+        model=get_openai_model(),
+        temperature=0,
+        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a SQLite SQL repair engineer. "
+                    "Return JSON with exactly two keys: sql and explanation. "
+                    "Repair the SQL based on the supplied error. "
+                    "Generate exactly one read-only SELECT query. "
+                    "Use only the supplied schema. "
+                    "Never generate writes, DDL, PRAGMA, ATTACH, "
+                    "multiple statements, or invented columns."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Question: {question}\n"
+                    f"Schema: {schema}\n"
+                    f"Failed SQL: {failed_sql}\n"
+                    f"Error: {error}"
+                ),
+            },
+        ],
+    )
+
+    payload = json.loads(
+        response.choices[0].message.content or "{}"
+    )
+
+    sql = str(payload.get("sql", "")).strip()
+    explanation = str(
+        payload.get("explanation", "Repaired SQL query.")
+    ).strip()
+
+    if not sql:
+        raise ValueError("The model returned empty repaired SQL.")
+
+    return sql, explanation
+# INSIGHTAI_V2_SQL_REPAIR_END

@@ -1,8 +1,10 @@
-"""FastAPI interface for the AI Data Analyst Agent."""
+﻿"""FastAPI interface for the AI Data Analyst Agent."""
 from __future__ import annotations
 
 from typing import Any
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header
+import os
+import secrets
 from pydantic import BaseModel, Field
 
 from app.agent.graph import run_analysis
@@ -15,6 +17,12 @@ app = FastAPI(
     description="Natural-language analytics over a read-only sample SQLite database.",
     version="1.0.0",
 )
+
+
+def authorize(authorization: str = Header(default="")):
+    token = os.getenv("INSIGHTAI_API_TOKEN", "").strip()
+    if token and not secrets.compare_digest(authorization, "Bearer " + token):
+        raise HTTPException(status_code=401, detail="Invalid API token")
 
 
 class AnalyzeRequest(BaseModel):
@@ -30,6 +38,9 @@ class AnalyzeResponse(BaseModel):
     mode: str | None = None
     error: str | None = None
     truncated: bool = False
+    retry_count: int = 0
+    analysis_result: dict[str, Any] | None = None
+    chart_recommendations: list[dict[str, Any]] = []
 
 
 @app.get("/health")
@@ -38,12 +49,12 @@ def health() -> dict[str, str]:
     return {"status": "ok", "llm_mode": "openai" if is_llm_enabled() else "demo"}
 
 
-@app.get("/schema")
+@app.get("/schema", dependencies=[Depends(authorize)])
 def schema() -> dict[str, str]:
     return {"schema": get_schema(ensure_database())}
 
 
-@app.post("/analyze", response_model=AnalyzeResponse)
+@app.post("/analyze", response_model=AnalyzeResponse, dependencies=[Depends(authorize)])
 def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     result = run_analysis(request.question)
     if result.get("error"):
@@ -57,4 +68,8 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         mode=result.get("mode"),
         error=result.get("error"),
         truncated=result.get("truncated", False),
+        retry_count=result.get("retry_count", 0),
+        analysis_result=result.get("analysis_result"),
+        chart_recommendations=result.get("chart_recommendations", []),
     )
+

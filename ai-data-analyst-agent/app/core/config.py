@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from contextvars import ContextVar
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -10,9 +11,12 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_DB_PATH = DATA_DIR / "sample_sales.db"
+active_database = ContextVar("active_database", default=None)
 
 
 def get_db_path() -> Path:
+    if active_database.get():
+        return Path(active_database.get())
     raw = os.getenv("DATABASE_PATH", "").strip()
     if not raw:
         return DEFAULT_DB_PATH
